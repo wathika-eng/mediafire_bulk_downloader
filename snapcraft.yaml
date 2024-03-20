@@ -1,4 +1,4 @@
-name: mediafire-bulk-downloader
+name: mediafire
 base: core18
 version: '1.0'
 summary: Mediafire Bulk Downloader
