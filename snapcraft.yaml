@@ -1,0 +1,21 @@
+name: mediafire-bulk-downloader
+base: core18
+version: '1.0'
+summary: Mediafire Bulk Downloader
+description: |
+  A script for bulk downloading files from Mediafire.
+grade: stable
+confinement: strict
+
+apps:
+  mediafire-bulk-downloader:
+    command: mediafire_bulk_downloader
+    plugs: [network]
+
+parts:
+  mediafire-bulk-downloader:
+    plugin: python
+    source: .
+    python-version: python3
+    build-packages: [python3, python3-pip]
+
