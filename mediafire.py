@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 
 import hashlib
+import os
+import threading
+import time
 from re import findall
-from time import sleep
+from tkinter import (
+    Tk,
+    Label,
+    Entry,
+    Button,
+    filedialog,
+    IntVar,
+    messagebox,
+    StringVar,
+    ttk,
+)
 from gazpacho import Soup
-from requests import head, get
+from requests import get, head
 from argparse import ArgumentParser
 from gazpacho.utils import HTTPError
-from os import path, makedirs, remove, chdir
-from threading import BoundedSemaphore, Thread, Event
 
 
 class bcolors:
@@ -23,181 +34,69 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
-# Non-alphanumeric (str.isalphanum()) characters allowed in a file or folder name
 NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTERS = "-_. "
-# What to replace bad characters with.
 NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTER_REPLACEMENT = "-"
 
+
 def hash_file(filename: str) -> str:
-    """
-    Calculate the SHA-256 hash digest of a file.
-
-    Args:
-        filename (str): The path to the file.
-
-    Returns:
-        str: The hexadecimal representation of the hash digest.
-
-    Raises:
-        FileNotFoundError: If the specified file does not exist.
-        PermissionError: If the user does not have permission to read the file.
-    """
-    # make a hash object
     h = hashlib.sha256()
-
-    # open file for reading in binary mode
     with open(filename, "rb") as file:
-        # loop till the end of the file
         chunk = 0
         while chunk != b"":
-            # read only 1024 bytes at a time
             chunk = file.read(1024)
             h.update(chunk)
-
-    # return the hex representation of digest
     return h.hexdigest()
 
 
 def normalize_file_or_folder_name(filename: str) -> str:
-    """
-    Normalize a file or folder name by replacing non-alphanumeric characters.
-
-    Args:
-        filename (str): The original file or folder name.
-
-    Returns:
-        str: The normalized file or folder name.
-
-    Note:
-        If you want to disable normalization, uncomment the return statement at the beginning of the function.
-
-    Example:
-        >>> normalize_file_or_folder_name("my_file$%")
-        'my_file_'
-
-    """
     return "".join(
         [
-            char
-            if (char.isalnum() or char in NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTERS)
-            else NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTER_REPLACEMENT
+            (
+                char
+                if (
+                    char.isalnum()
+                    or char in NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTERS
+                )
+                else NON_ALPHANUM_FILE_OR_FOLDER_NAME_CHARACTER_REPLACEMENT
+            )
             for char in filename
         ]
     )
 
 
 def print_error(link: str):
-    """
-    Prints an error message indicating that a file has been deleted or blocked due to being dangerous.
-
-    Parameters:
-        link (str): The link to the file or resource that caused the error.
-
-    Returns:
-        None
-
-    Example:
-        >>> print_error("https://example.com/dangerous_file.txt")
-        Deleted file or Dangerous File Blocked
-        Take a look if you want to be sure: https://example.com/dangerous_file.txt
-    """
     print(
         f"{bcolors.FAIL}Deleted file or Dangerous File Blocked\n"
         f"{bcolors.WARNING}Take a look if you want to be sure: {link}{bcolors.ENDC}"
     )
 
 
-def main():
-    """
-    Mediafire Bulk Downloader
-
-    Parses command-line arguments to download files or folders from Mediafire.
-
-    Usage:
-        python mediafire.py <mediafire_url> [-o <output_path>] [-t <num_threads>]
-
-    Arguments:
-        mediafire_url (str): The URL of the file or folder to be downloaded from Mediafire.
-
-    Options:
-        -o, --output (str): The path of the desired output folder. Default is the current directory.
-        -t, --threads (int): Number of threads to use for downloading. Default is 10.
-
-    Returns:
-        None
-
-    Example:
-        To download a file:
-        $ python mediafire.py https://www.mediafire.com/file/example_file.txt
-
-        To download a folder:
-        $ python mediafire.py https://www.mediafire.com/folder/example_folder -o /path/to/output -t 20
-    """
-    parser = ArgumentParser(
-        "mediafire_bulk_downloader", usage="python mediafire.py <mediafire_url>"
-    )
-    parser.add_argument(
-        "mediafire_url", help="The URL of the file or folder to be downloaded"
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        help="The path of the desired output folder",
-        required=False,
-        default=".",
-    )
-    parser.add_argument(
-        "-t",
-        "--threads",
-        help="Number of threads to use",
-        type=int,
-        default=10,
-        required=False,
-    )
-
-    args = parser.parse_args()
-
+def main(url, output, threads, progress_callback, stop_event, pause_event):
     folder_or_file = findall(
-        r"mediafire\.com/(folder|file|file_premium)\/([a-zA-Z0-9]+)", args.mediafire_url
+        r"mediafire\.com/(folder|file|file_premium)\/([a-zA-Z0-9]+)", url
     )
-
     if not folder_or_file:
         print(f"{bcolors.FAIL}Invalid link{bcolors.ENDC}")
-        exit(1)
+        return
 
     t, key = folder_or_file[0]
 
     if t in {"file", "file_premium"}:
-        get_file(key, args.output)
+        get_file(key, output, progress_callback, stop_event, pause_event)
     elif t == "folder":
-        get_folders(key, args.output, args.threads, first=True)
+        get_folders(
+            key, output, threads, progress_callback, stop_event, pause_event, first=True
+        )
     else:
         print(f"{bcolors.FAIL}Invalid link{bcolors.ENDC}")
-        exit(1)
+        return
 
     print(f"{bcolors.OKGREEN}{bcolors.BOLD}All downloads completed{bcolors.ENDC}")
-    exit(0)
 
 
 def get_files_or_folders_api_endpoint(
     filefolder: str, folder_key: str, chunk: int = 1, info: bool = False
 ) -> str:
-    """
-    Constructs the API endpoint URL for retrieving files or folders information from Mediafire.
-
-    Parameters:
-        filefolder (str): Type of content to retrieve. Either 'file' or 'folder'.
-        folder_key (str): The unique identifier of the folder.
-        chunk (int): The chunk number to retrieve. Default is 1.
-        info (bool): If True, gets folder info; otherwise, gets content. Default is False.
-
-    Returns:
-        str: The constructed API endpoint URL.
-
-    Example:
-        >>> get_files_or_folders_api_endpoint('folder', 'folder_key_123', chunk=2, info=True)
-        'https://www.mediafire.com/api/1.4/folder/get_info.php?r=utga&content_type=folder&filter=all&order_by=name&order_direction=asc&chunk=2&version=1.5&folder_key=folder_key_123&response_format=json'
-    """
     return (
         f"https://www.mediafire.com/api/1.4/folder"
         f"/{'get_info' if info else 'get_content'}.php?r=utga&content_type={filefolder}"
@@ -207,42 +106,20 @@ def get_files_or_folders_api_endpoint(
 
 
 def get_info_endpoint(file_key: str) -> str:
-    """
-    Constructs the API endpoint URL for retrieving information about a specific file from Mediafire.
-
-    Parameters:
-        file_key (str): The unique identifier of the file.
-
-    Returns:
-        str: The constructed API endpoint URL.
-
-    Example:
-        >>> get_info_endpoint('file_key_123')
-        'https://www.mediafire.com/api/file/get_info.php?quick_key=file_key_123&response_format=json'
-    """
     return f"https://www.mediafire.com/api/file/get_info.php?quick_key={file_key}&response_format=json"
 
 
 def get_folders(
-    folder_key: str, folder_name: str, threads_num: int, first: bool = False
+    folder_key: str,
+    folder_name: str,
+    threads_num: int,
+    progress_callback,
+    stop_event,
+    pause_event,
+    first: bool = False,
 ) -> None:
-    """
-    Recursively downloads folders and files from Mediafire.
-
-    Parameters:
-        folder_key (str): The unique identifier of the folder.
-        folder_name (str): The name of the folder.
-        threads_num (int): Number of threads to use for downloading.
-        first (bool): If True, it's the first folder being processed. Default is False.
-
-    Returns:
-        None
-
-    Example:
-        >>> get_folders('folder_key_123', '/path/to/download', 5, first=True)
-    """
     if first:
-        folder_name = path.join(
+        folder_name = os.path.join(
             folder_name,
             normalize_file_or_folder_name(
                 get(
@@ -250,49 +127,33 @@ def get_folders(
                 ).json()["response"]["folder_info"]["name"]
             ),
         )
-
-    # If the folder doesn't exist, create and enter it
-    if not path.exists(folder_name):
-        makedirs(folder_name)
-    chdir(folder_name)
-
-    # Downloading all the files in the main folder
-    download_folder(folder_key, threads_num)
-
-    # Searching for other folders
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+    os.chdir(folder_name)
+    download_folder(folder_key, threads_num, progress_callback, stop_event, pause_event)
     folder_content = get(
         get_files_or_folders_api_endpoint("folders", folder_key)
     ).json()["response"]["folder_content"]
-
-    # Downloading other folders recursively
     if "folders" in folder_content:
         for folder in folder_content["folders"]:
-            get_folders(folder["folderkey"], folder["name"], threads_num)
-            chdir("..")
+            get_folders(
+                folder["folderkey"],
+                folder["name"],
+                threads_num,
+                progress_callback,
+                stop_event,
+                pause_event,
+            )
+            os.chdir("..")
 
 
-def download_folder(folder_key: str, threads_num: int) -> None:
-    """
-    Downloads all files from a Mediafire folder.
-
-    Parameters:
-        folder_key (str): The unique identifier of the folder.
-        threads_num (int): Number of threads to use for downloading.
-
-    Returns:
-        None
-
-    Example:
-        >>> download_folder('folder_key_123', 5)
-    """
-    # Getting all the files
+def download_folder(
+    folder_key: str, threads_num: int, progress_callback, stop_event, pause_event
+) -> None:
     data = []
     chunk = 1
     more_chunks = True
-
     try:
-        # If there are more than 100 files, make another request
-        # and append the result to data
         while more_chunks:
             r_json = get(
                 get_files_or_folders_api_endpoint("files", folder_key, chunk=chunk)
@@ -300,101 +161,75 @@ def download_folder(folder_key: str, threads_num: int) -> None:
             more_chunks = r_json["response"]["folder_content"]["more_chunks"] == "yes"
             data += r_json["response"]["folder_content"]["files"]
             chunk += 1
-
     except KeyError:
         print("Invalid link")
         return
 
-    event = Event()
-    threadLimiter = BoundedSemaphore(threads_num)
-    total_threads: list[Thread] = []
+    event = threading.Event()
+    threadLimiter = threading.BoundedSemaphore(threads_num)
+    total_threads = []
 
-    # Appending a new thread for downloading every link
     for file in data:
         total_threads.append(
-            Thread(
+            threading.Thread(
                 target=download_file,
                 args=(
                     file,
                     event,
                     threadLimiter,
+                    progress_callback,
+                    stop_event,
+                    pause_event,
                 ),
             )
         )
-
-    # Starting all threads
     for thread in total_threads:
         thread.start()
 
-    # Handle being interrupted
     try:
         while True:
             if all(not t.is_alive() for t in total_threads):
                 break
-            sleep(0.01)
+            time.sleep(0.01)
     except KeyboardInterrupt:
         print(f"{bcolors.WARNING}Closing all threads{bcolors.ENDC}")
         event.set()
         for thread in total_threads:
             thread.join()
         print(f"{bcolors.WARNING}{bcolors.BOLD}Download interrupted{bcolors.ENDC}")
-        exit(0)
 
 
-def get_file(key: str, output_path: str = None) -> None:
-    """
-    Downloads a single file from Mediafire using the main thread.
-
-    Parameters:
-        key (str): The unique identifier of the file.
-        output_path (str): The path where the file will be downloaded. If None, the current directory is used.
-
-    Returns:
-        None
-
-    Example:
-        >>> get_file('file_key_123', '/path/to/download')
-    """
-    # Retrieve file information
+def get_file(
+    key: str,
+    output_path: str = None,
+    progress_callback=None,
+    stop_event=None,
+    pause_event=None,
+) -> None:
     file_data = get(get_info_endpoint(key)).json()["response"]["file_info"]
-
-    # Change directory if output_path is provided
     if output_path:
-        chdir(output_path)
-
-    # Download the file
-    download_file(file_data)
+        os.chdir(output_path)
+    download_file(
+        file_data,
+        progress_callback=progress_callback,
+        stop_event=stop_event,
+        pause_event=pause_event,
+    )
 
 
 def download_file(
-    file: dict, event: Event = None, limiter: BoundedSemaphore = None
+    file: dict,
+    event: threading.Event = None,
+    limiter: threading.BoundedSemaphore = None,
+    progress_callback=None,
+    stop_event=None,
+    pause_event=None,
 ) -> None:
-    """
-    Downloads a file from a direct link obtained from Mediafire.
-
-    Parameters:
-        file (dict): A dictionary containing file information, including the direct download link.
-        event (Event): An optional threading event used for handling interruptions.
-        limiter (BoundedSemaphore): An optional semaphore for controlling the number of concurrent downloads.
-
-    Returns:
-        None
-
-    Example:
-        >>> download_file({'filename': 'example_file.txt', 'links': {'normal_download': 'https://www.mediafire.com/download/example_file.txt'}})
-    """
-    # Acquire semaphore if available
     if limiter:
         limiter.acquire()
-
-    # Extract direct download link from file information
     download_link = file["links"]["normal_download"]
-
-    # Normalize filename
     filename = normalize_file_or_folder_name(file["filename"])
-
-    # Check if file already exists and is not corrupted
-    if path.exists(filename):
+    if os.path.exists(filename):
         if hash_file(filename) == file["hash"]:
             print(f"{bcolors.WARNING}{filename}{bcolors.ENDC} already exists, skipping")
             if limiter:
@@ -404,22 +239,14 @@ def download_file(
             print(
                 f"{bcolors.WARNING}{filename}{bcolors.ENDC} already exists but corrupted, downloading again"
             )
-
-    # Start downloading the file
     print(f"{bcolors.OKBLUE}Downloading {filename}{bcolors.ENDC}")
-
-    if event:
-        if event.is_set():
-            if limiter:
-                limiter.release()
-            return
-
-    # Check if the link is not a direct download link and extract the actual download link
+    if event and event.is_set():
+        if limiter:
+            limiter.release()
+        return
     try:
         if head(download_link).headers.get("content-encoding") == "gzip":
-            # Retrieve the HTML content of the file link
             html = get(download_link).text
-            # Parse HTML content to extract the actual download link
             soup = Soup(html)
             download_link = (
                 soup.find("div", {"class": "download_link"})
@@ -427,44 +254,158 @@ def download_file(
                 .attrs["href"]
             )
     except Exception:
-        # Handle HTTP errors
         print_error(download_link)
         if limiter:
             limiter.release()
         return
-
-    # Download file in chunks
     with get(download_link, stream=True) as r:
         r.raise_for_status()
+        total_length = int(r.headers.get("content-length", 0))
         with open(filename, "wb") as f:
+            dl = 0
             for chunk in r.iter_content(chunk_size=4096):
-                if event:
-                    if event.is_set():
-                        break
+                if event and event.is_set():
+                    break
+                if stop_event and stop_event.is_set():
+                    os.remove(filename)
+                    print(
+                        f"{bcolors.WARNING}Download stopped for {filename}{bcolors.ENDC}"
+                    )
+                    if limiter:
+                        limiter.release()
+                    return
+                if pause_event and pause_event.is_set():
+                    while pause_event.is_set():
+                        time.sleep(0.1)
                 if chunk:
                     f.write(chunk)
-
-    # Check if download was interrupted
-    if event:
-        if event.is_set():
-            remove(filename)
-            print(
-                f"{bcolors.WARNING}Partially downloaded {filename} deleted{bcolors.ENDC}"
-            )
-            if limiter:
-                limiter.release()
-            return
-
-    # Print download success message
+                    dl += len(chunk)
+                    if progress_callback:
+                        progress_callback(filename, dl, total_length)
+    if event and event.is_set():
+        os.remove(filename)
+        print(f"{bcolors.WARNING}Partially downloaded {filename} deleted{bcolors.ENDC}")
+        if limiter:
+            limiter.release()
+        return
     print(f"{bcolors.OKGREEN}{filename}{bcolors.ENDC} downloaded")
-
-    # Release semaphore if acquired
     if limiter:
         limiter.release()
 
 
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Mediafire Bulk Downloader")
+
+        self.url_label = Label(root, text="Mediafire URL:")
+        self.url_label.grid(row=0, column=0, padx=10, pady=10)
+        self.url_entry = Entry(root, width=50)
+        self.url_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        self.output_label = Label(root, text="Output Directory:")
+        self.output_label.grid(row=1, column=0, padx=10, pady=10)
+        self.output_entry = Entry(root, width=50)
+        self.output_entry.grid(row=1, column=1, padx=10, pady=10)
+        self.browse_button = Button(root, text="Browse", command=self.browse_directory)
+        self.browse_button.grid(row=1, column=2, padx=10, pady=10)
+
+        self.threads_label = Label(root, text="Number of Threads:")
+        self.threads_label.grid(row=2, column=0, padx=10, pady=10)
+        self.threads_entry = Entry(root, width=5)
+        self.threads_entry.grid(row=2, column=1, padx=10, pady=10)
+        self.threads_entry.insert(0, "10")
+
+        self.start_button = Button(
+            root, text="Start Download", command=self.start_download
+        )
+        self.start_button.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
+
+        self.progress_label = Label(root, text="Download Progress:")
+        self.progress_label.grid(row=4, column=0, padx=10, pady=10)
+        self.progress_bar = ttk.Progressbar(root, length=400, mode="determinate")
+        self.progress_bar.grid(row=4, column=1, columnspan=2, padx=10, pady=10)
+
+        self.pause_button = Button(
+            root, text="Pause", command=self.pause_download, state="disabled"
+        )
+        self.pause_button.grid(row=5, column=0, padx=10, pady=10)
+        self.resume_button = Button(
+            root, text="Resume", command=self.resume_download, state="disabled"
+        )
+        self.resume_button.grid(row=5, column=1, padx=10, pady=10)
+        self.stop_button = Button(
+            root, text="Stop", command=self.stop_download, state="disabled"
+        )
+        self.stop_button.grid(row=5, column=2, padx=10, pady=10)
+
+        self.stop_event = threading.Event()
+        self.pause_event = threading.Event()
+
+    def browse_directory(self):
+        directory = filedialog.askdirectory()
+        if directory:
+            self.output_entry.delete(0, "end")
+            self.output_entry.insert(0, directory)
+
+    def update_progress(self, filename, downloaded, total_length):
+        progress = downloaded / total_length * 100
+        self.progress_bar["value"] = progress
+        self.root.update_idletasks()
+
+    def start_download(self):
+        url = self.url_entry.get()
+        output = self.output_entry.get()
+        try:
+            threads = int(self.threads_entry.get())
+        except ValueError:
+            messagebox.showerror(
+                "Invalid input", "Number of threads must be an integer."
+            )
+            return
+
+        if not url or not output or not threads:
+            messagebox.showerror("Invalid input", "All fields must be filled.")
+            return
+
+        self.pause_button.config(state="normal")
+        self.stop_button.config(state="normal")
+
+        self.download_thread = threading.Thread(
+            target=main,
+            args=(
+                url,
+                output,
+                threads,
+                self.update_progress,
+                self.stop_event,
+                self.pause_event,
+            ),
+        )
+        self.download_thread.start()
+
+    def pause_download(self):
+        self.pause_event.set()
+        self.pause_button.config(state="disabled")
+        self.resume_button.config(state="normal")
+
+    def resume_download(self):
+        self.pause_event.clear()
+        self.pause_button.config(state="normal")
+        self.resume_button.config(state="disabled")
+
+    def stop_download(self):
+        self.stop_event.set()
+        self.download_thread.join()
+        self.stop_event.clear()
+        self.pause_event.clear()
+        self.progress_bar["value"] = 0
+        self.pause_button.config(state="disabled")
+        self.resume_button.config(state="disabled")
+        self.stop_button.config(state="disabled")
+
+
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        exit(0)
+    root = Tk(className="Bulk Downloader")
+    app = App(root)
+    root.mainloop()
