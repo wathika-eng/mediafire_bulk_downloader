@@ -38,6 +38,7 @@ Then:
 ```
 python mediafire.py
 ```
+![image](https://github.com/user-attachments/assets/2fbd759f-39e3-4690-8228-435ad215d9e1)
 
 
 <!-- # Mediafire Bulk Downloader
