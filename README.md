@@ -1,6 +1,22 @@
 ## To get started:
-- Ensure you have python `python -V` and pip `pip -V` installed on your system.
+- Ensure you have python `python -V`, pip `pip -V` and virtualenv `virtualenv --version` installed on your system.
 
+else:
+```
+sudo apt install pipx
+
+pipx ensurepath
+
+pipx install pip
+
+pipx install pipenv
+
+pipx install virtualenv
+```
+Install Tkinter:
+```
+sudo apt-get install python3-tk
+```
 Then:
 ```
 ./start
@@ -8,17 +24,19 @@ Then:
 will create a virtual environment, install the required dependencies and show the GUI for the Mediafire Bulk Downloader.
 
 To run as in a CLI interface:
-Ensure you have pipenv `pipenv --version` installed, if not, install it with:
+<!-- Ensure you have pipenv `pipenv --version` installed, if not, install it with:
 ```
-pip install pipenv
-```
-Then run:
+sudo apt install pipx
+
+pipx install pipenv -->
+<!-- ```
+Then run: -->
 ```
 pipenv install && pipenv shell
 ```
 Then:
 ```
-python mediafire2.py
+python mediafire.py
 ```
 
 
