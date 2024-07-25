@@ -1,4 +1,28 @@
-# Mediafire Bulk Downloader
+## To get started:
+- Ensure you have python `python -V` and pip `pip -V` installed on your system.
+
+Then:
+```
+./start
+```
+will create a virtual environment, install the required dependencies and show the GUI for the Mediafire Bulk Downloader.
+
+To run as in a CLI interface:
+Ensure you have pipenv `pipenv --version` installed, if not, install it with:
+```
+pip install pipenv
+```
+Then run:
+```
+pipenv install && pipenv shell
+```
+Then:
+```
+python mediafire2.py
+```
+
+
+<!-- # Mediafire Bulk Downloader
 
 ⚠ I made a rust async version of this, check it out [HERE](https://github.com/nickoehler/mediafire_rs)! ⚠
 
@@ -77,4 +101,4 @@ python mediafire.py https://www.mediafire.com/folder/example_folder -o /path/to/
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. -->
