@@ -1,7 +1,9 @@
 ## To get started:
+
 - Ensure you have python `python -V`, pip `pip -V` and virtualenv `virtualenv --version` installed on your system.
 
 else:
+
 ```
 sudo apt install pipx
 
@@ -13,17 +15,29 @@ pipx install pipenv
 
 pipx install virtualenv
 ```
+
 Install Tkinter:
+
 ```
 sudo apt-get install python3-tk
 ```
+
+Clone the repository to your local machine:
+
+```
+git clone https://github.com/wathika-eng/mediafire_bulk_downloader.git --depth 1 && cd mediafire_bulk_downloader
+```
+
 Then:
+
 ```
 ./start
 ```
+
 will create a virtual environment, install the required dependencies and show the GUI for the Mediafire Bulk Downloader.
 
 To run as in a CLI interface:
+
 <!-- Ensure you have pipenv `pipenv --version` installed, if not, install it with:
 ```
 sudo apt install pipx
@@ -31,15 +45,18 @@ sudo apt install pipx
 pipx install pipenv -->
 <!-- ```
 Then run: -->
+
 ```
 pipenv install && pipenv shell
 ```
+
 Then:
+
 ```
 python mediafire.py
 ```
-![image](https://github.com/user-attachments/assets/2fbd759f-39e3-4690-8228-435ad215d9e1)
 
+![image](https://github.com/user-attachments/assets/2fbd759f-39e3-4690-8228-435ad215d9e1)
 
 <!-- # Mediafire Bulk Downloader
 
